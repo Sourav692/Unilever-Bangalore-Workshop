@@ -1,0 +1,57 @@
+{
+  "title": "Data Leakage Prevention in Feature Stores",
+  "author": "Databricks Workshop — Bangalore",
+  "date": "July 2026",
+  "slides": [
+    {"type": "title", "title": "Data Leakage Prevention", "subtitle": "Point-in-time correctness in feature stores", "author": "Databricks Workshop — Bangalore", "date": "July 2026"},
+    {"type": "agenda", "title": "What we'll cover", "items": [
+      "What data leakage is and why it hurts",
+      "Where leakage sneaks into features",
+      "Time series feature tables",
+      "Point-in-time (AS OF) lookups",
+      "Bounding history with lookback_window",
+      "Consistency carried to scoring"
+    ]},
+    {"type": "section", "title": "The silent model killer", "subtitle": "What is data leakage?"},
+    {"type": "callout", "text": "Data leakage: using feature values for training that were not available at the time the label was recorded.", "source": "Databricks documentation"},
+    {"type": "card-right", "title": "A 2-minute mistake", "bullets": [
+      "Label recorded at 08:50",
+      "Feature reading from 08:52 joined in",
+      "Model trains on the FUTURE",
+      "At 08:50 in prod, 08:52 doesn't exist",
+      "Offline metrics great, production breaks"
+    ], "card_content": "The trap\n\nLeakage makes offline\nscores look excellent.\n\nYou only notice when\nproduction accuracy\ncollapses."},
+    {"type": "comparison", "title": "How features get joined", "left_label": "By key only (leaky)", "right_label": "Point-in-time (correct)"},
+    {"type": "section", "title": "The fix", "subtitle": "Point-in-time correctness"},
+    {"type": "callout", "text": "For each labeled event at time t, join the feature value that was current at or before t — never after.", "source": "Point-in-time correctness"},
+    {"type": "card-full", "title": "AS OF join — the mechanic", "content": "For each label row, the Feature Store:\n  1. matches by primary key (excluding timestamp)\n  2. takes the LATEST feature timestamp <= the label timestamp\n  3. returns null if no prior value exists\n\nUser 1 labeled 08:50  ->  reading from 08:45  (NOT 08:52)"},
+    {"type": "section", "title": "Time series feature tables", "subtitle": "Delta + a TIMESERIES key"},
+    {"type": "card-full", "title": "Declare the timeseries column", "content": "CREATE TABLE main.fs.user_reading_features (\n  user_id       STRING    NOT NULL,\n  feature_ts    TIMESTAMP NOT NULL,\n  reading_value DOUBLE,\n  CONSTRAINT pk PRIMARY KEY (user_id, feature_ts TIMESERIES)\n);\n\n# Python: fe.create_table(..., timeseries_columns='feature_ts')"},
+    {"type": "card-left", "title": "Point-in-time training set", "card_content": "FeatureLookup(\n  table_name=TS_FT,\n  feature_names=['reading_value'],\n  lookup_key='user_id',\n  timestamp_lookup_key='event_ts')", "bullets": [
+      "timestamp_lookup_key triggers the AS OF join",
+      "Matches feature value known at/before the label",
+      "One parameter = leak-free training data",
+      "Returns null when no prior value exists"
+    ]},
+    {"type": "two-column", "title": "Bounding history — lookback_window",
+      "left_header": "What it does", "left": ["Excludes features older than a cutoff", "Relative to the label timestamp", "Drops stale values (treated as null)"],
+      "right_header": "Applies to", "right": ["Training & batch inference", "Online inference always uses latest", "timedelta(days=7) style config"]},
+    {"type": "callout", "text": "score_batch re-applies the same point-in-time logic at inference — leak-free training AND skew-free serving.", "source": "Consistency by construction"},
+    {"type": "checklist", "title": "Guardrails against leakage", "items": [
+      {"text": "Use time series tables + timestamp_lookup_key for time-varying features", "checked": true},
+      {"text": "Split before engineering; don't fit scalers on full data", "checked": true},
+      {"text": "Never include the target or a proxy as a feature", "checked": true},
+      {"text": "Respect label windows (don't use in-window features)", "checked": true},
+      {"text": "Be suspicious of 'too good' offline metrics", "checked": true},
+      {"text": "Use lookback_window to drop stale features", "checked": true}
+    ]},
+    {"type": "content", "title": "Key takeaways", "bullets": [
+      "Leakage = training on info unavailable at label time",
+      "Point-in-time: use the value known at or before t",
+      "Time series tables enable AS OF joins",
+      "timestamp_lookup_key makes the training set leak-free",
+      "score_batch re-applies the same logic — no skew"
+    ]},
+    {"type": "closing", "title": "Let's run the notebook →"}
+  ]
+}

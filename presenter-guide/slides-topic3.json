@@ -1,0 +1,64 @@
+{
+  "title": "Feature Store: Reusability & Consistency",
+  "author": "Databricks Workshop — Bangalore",
+  "date": "July 2026",
+  "slides": [
+    {"type": "title", "title": "Feature Store", "subtitle": "Reusability & consistency across models", "author": "Databricks Workshop — Bangalore", "date": "July 2026"},
+    {"type": "agenda", "title": "What we'll cover", "items": [
+      "The two problems a feature store solves",
+      "Feature tables in Unity Catalog",
+      "The end-to-end Feature Engineering workflow",
+      "Packaging features with the model",
+      "Offline vs. online serving",
+      "Discovery, lineage & governance"
+    ]},
+    {"type": "section", "title": "Why a feature store?", "subtitle": "Two problems, one registry"},
+    {"type": "two-column", "title": "The two problems it solves",
+      "left_header": "Reuse (no reinvention)",
+      "left": ["Every team recomputes the same features", "Logic drifts between projects", "Wasted effort, inconsistent numbers", "→ Define once, reuse everywhere"],
+      "right_header": "Consistency (no skew)",
+      "right": ["Features computed one way in training", "A different way at serving time", "Model sees different inputs in prod", "→ Identical lookups everywhere"]},
+    {"type": "callout", "text": "A feature store is a central registry for the features used in your models — computed once, governed, reused, and looked up identically at training and inference.", "source": "Databricks documentation — Feature Store"},
+    {"type": "big-number", "number": "1", "text": "definition per feature", "subtitle": "reused across every model that needs it"},
+    {"type": "section", "title": "Feature tables", "subtitle": "Just Delta tables with a primary key"},
+    {"type": "icon-grid", "title": "What a feature table gives you", "items": [
+      {"icon": "🔑", "title": "Primary key", "description": "Entity id for lookups"},
+      {"icon": "🏛️", "title": "Unity Catalog", "description": "Governed like any table"},
+      {"icon": "🔎", "title": "Discoverable", "description": "Found in Catalog Explorer"},
+      {"icon": "🧬", "title": "Lineage", "description": "Which models used it"}
+    ]},
+    {"type": "section", "title": "The workflow", "subtitle": "create → lookup → log → score"},
+    {"type": "timeline", "title": "End-to-end Feature Engineering", "steps": [
+      {"title": "create_table", "description": "Register a Delta feature table with a primary key."},
+      {"title": "create_training_set", "description": "Declare FeatureLookups; the store joins features to labels."},
+      {"title": "fe.log_model", "description": "Package feature metadata INTO the model."},
+      {"title": "fe.score_batch", "description": "Supply keys only; features are fetched automatically."}
+    ]},
+    {"type": "card-full", "title": "Build a training set by lookup — no manual joins", "content": "feature_lookups = [\n  FeatureLookup(\n    table_name='main.fs.customer_features',\n    feature_names=['total_purchases_30d', 'avg_basket_size'],\n    lookup_key='customer_id')\n]\ntraining_set = fe.create_training_set(\n  df=labels_df, feature_lookups=feature_lookups, label='churned')"},
+    {"type": "callout", "text": "fe.log_model packages the feature lookups WITH the model — so at inference you pass only the keys, and score_batch fetches the right features automatically.", "source": "This is what eliminates train/serve skew"},
+    {"type": "two-column", "title": "Offline vs. online — same definition",
+      "left_header": "Offline store", "left": ["The Delta feature table", "Training & batch inference", "High throughput"],
+      "right_header": "Online store", "right": ["Low-latency (Lakebase)", "Real-time model serving", "Millisecond lookups"]},
+    {"type": "section", "title": "What makes features reusable", "subtitle": "Discovery + lineage + governance"},
+    {"type": "three-column", "title": "The governance layer", "columns": [
+      {"header": "Discovery", "items": ["Catalog Explorer", "Features UI", "Tags for search"]},
+      {"header": "Lineage", "items": ["Model → features", "Features → tables", "Impact analysis"]},
+      {"header": "Governance", "items": ["UC permissions", "Cross-workspace sharing", "Single source of truth"]}
+    ]},
+    {"type": "checklist", "title": "Feature Store essentials", "items": [
+      {"text": "Feature table = Delta table in UC with a primary key", "checked": true},
+      {"text": "FeatureLookup + create_training_set for reuse", "checked": true},
+      {"text": "fe.log_model packages feature metadata with the model", "checked": true},
+      {"text": "fe.score_batch needs only keys — no skew", "checked": true},
+      {"text": "Offline & online stores share one definition", "checked": true}
+    ]},
+    {"type": "content", "title": "Key takeaways", "bullets": [
+      "A feature store solves reuse and train/serve consistency",
+      "Feature table = governed Delta table with a primary key",
+      "create_table → FeatureLookup → log_model → score_batch",
+      "Packaging features with the model kills skew",
+      "Discovery + lineage + governance make features reusable"
+    ]},
+    {"type": "closing", "title": "Let's run the notebook →"}
+  ]
+}

@@ -1,0 +1,298 @@
+{
+  "title": "Distributed Training in Databricks",
+  "author": "Databricks Workshop — Bangalore",
+  "date": "July 2026",
+  "slides": [
+    {
+      "type": "title",
+      "title": "Distributed Training in Databricks",
+      "subtitle": "Scaling deep learning from one GPU to the whole cluster",
+      "author": "Databricks Workshop — Bangalore",
+      "date": "July 2026"
+    },
+    {
+      "type": "agenda",
+      "title": "What we'll cover",
+      "items": [
+        "Why single-node first — and when to scale",
+        "Data parallelism vs. model parallelism",
+        "TorchDistributor: single-node & multi-node",
+        "DeepSpeed distributor for models that don't fit",
+        "Ray Train as the Python-native alternative",
+        "Sizing GPU clusters & tracking with MLflow"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "The mental model",
+      "subtitle": "Start simple. Distribute only when forced."
+    },
+    {
+      "type": "callout",
+      "text": "Distributed code is more complex and slower per-step due to communication overhead. Train on a single machine when feasible.",
+      "source": "Databricks documentation — Distributed training"
+    },
+    {
+      "type": "timeline",
+      "title": "The scaling ladder",
+      "steps": [
+        {"title": "Single GPU", "description": "Model + batch fit on one GPU. Simplest, fastest to iterate."},
+        {"title": "Multi-GPU, one node", "description": "TorchDistributor local_mode=True for more speed / bigger batch."},
+        {"title": "Multi-node", "description": "TorchDistributor local_mode=False when one node isn't enough."},
+        {"title": "Model sharding", "description": "DeepSpeed / ZeRO when the model won't fit in one GPU."}
+      ]
+    },
+    {
+      "type": "two-column",
+      "title": "Two kinds of parallelism",
+      "left_header": "Data parallelism (common)",
+      "left": [
+        "Every worker holds a full model copy",
+        "Data batch split across workers",
+        "Gradients averaged via all-reduce",
+        "Scales throughput near-linearly",
+        "→ TorchDistributor, Ray Train"
+      ],
+      "right_header": "Model parallelism (model won't fit)",
+      "right": [
+        "The model itself is split across GPUs",
+        "By layer (pipeline) or tensor (tensor)",
+        "Needed when weights exceed one GPU",
+        "Higher communication cost",
+        "→ DeepSpeed / ZeRO"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "TorchDistributor",
+      "subtitle": "Databricks' native distributed PyTorch on Spark"
+    },
+    {
+      "type": "three-column",
+      "title": "TorchDistributor: three parameters",
+      "columns": [
+        {"header": "num_processes", "items": ["Total training processes", "≈ total GPUs to use", "e.g. workers × GPUs/worker"]},
+        {"header": "local_mode", "items": ["True → driver only", "(single-node multi-GPU)", "False → across workers", "(multi-node)"]},
+        {"header": "use_gpu", "items": ["True → one GPU per process", "nccl backend for all-reduce", "False → CPU (gloo)"]}
+      ]
+    },
+    {
+      "type": "card-full",
+      "title": "The same training function scales with one flag",
+      "content": "def train_fn(lr, epochs, batch, use_gpu):\n    import torch, torch.distributed as dist\n    from torch.nn.parallel import DistributedDataParallel as DDP\n    dist.init_process_group(backend='nccl')\n    # ... DDP model + DistributedSampler ...\n    dist.destroy_process_group()\n\n# Single node, multi-GPU:\nTorchDistributor(num_processes=4, local_mode=True,  use_gpu=True).run(train_fn, ...)\n# Multi-node — only local_mode changes:\nTorchDistributor(num_processes=16, local_mode=False, use_gpu=True).run(train_fn, ...)"
+    },
+    {
+      "type": "checklist",
+      "title": "TorchDistributor discipline",
+      "items": [
+        {"text": "Put all imports inside the training function (it gets pickled to workers)", "checked": true},
+        {"text": "Read LOCAL_RANK / RANK / WORLD_SIZE from environment", "checked": true},
+        {"text": "Use nccl backend on GPU, gloo on CPU", "checked": true},
+        {"text": "Wrap model in DistributedDataParallel + use DistributedSampler", "checked": true},
+        {"text": "Destroy the process group at the end", "checked": true},
+        {"text": "Requires Spark 3.4+ and Databricks Runtime 13.0 ML+", "checked": true}
+      ]
+    },
+    {
+      "type": "section",
+      "title": "When the model won't fit",
+      "subtitle": "DeepSpeed distributor & ZeRO"
+    },
+    {
+      "type": "card-right",
+      "title": "DeepSpeedTorchDistributor",
+      "bullets": [
+        "Built on top of TorchDistributor",
+        "For low GPU memory & large models",
+        "ZeRO shards optimizer state, gradients, params",
+        "Mixed precision + CPU offload",
+        "Databricks Runtime 14.0 ML+"
+      ],
+      "card_content": "ZeRO stages\n\nStage 1 — optimizer states\nStage 2 — + gradients\nStage 3 — + parameters\n\nHigher stage = more memory saved, more communication."
+    },
+    {
+      "type": "section",
+      "title": "Ray Train",
+      "subtitle": "The Python-native alternative"
+    },
+    {
+      "type": "two-column",
+      "title": "Ray and Spark are complementary",
+      "left_header": "Spark",
+      "left": [
+        "Data parallelism for ETL & analytics",
+        "DataFrame / SQL workloads",
+        "Feeds data to training"
+      ],
+      "right_header": "Ray",
+      "right": [
+        "Logical parallelism for dynamic tasks",
+        "Ray Train (DL), Tune (HPO), Data, Serve",
+        "Runs on the same Databricks cluster (2.3.0+)"
+      ]
+    },
+    {
+      "type": "icon-grid",
+      "title": "The Ray ecosystem",
+      "items": [
+        {"icon": "🚂", "title": "Ray Train", "description": "Distributed deep learning"},
+        {"icon": "🎛️", "title": "Ray Tune", "description": "Hyperparameter search"},
+        {"icon": "📦", "title": "Ray Data", "description": "Distributed data loading"},
+        {"icon": "🛰️", "title": "Ray Serve", "description": "Model serving"}
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Running it well",
+      "subtitle": "GPU clusters & MLflow"
+    },
+    {
+      "type": "three-column",
+      "title": "Sizing the GPU cluster",
+      "columns": [
+        {"header": "Largest training", "items": ["P5 — H100 (up to 8)", "P4d — A100 (8)", "LLMs, recsys, detection"]},
+        {"header": "Mid-range / value", "items": ["G6e — L40S (1–8)", "G5 — A10G (1–8)", "Train + inference"]},
+        {"header": "Light / dev", "items": ["G4dn — T4 (1–4)", "Single-node for dev", "Fastest to iterate"]}
+      ]
+    },
+    {
+      "type": "checklist",
+      "title": "GPU cluster config",
+      "items": [
+        {"text": "Enable the Machine Learning runtime (GPU ML auto-selects)", "checked": true},
+        {"text": "Leave Photon unchecked — incompatible with GPUs", "checked": true},
+        {"text": "Training: spark.task.resource.gpu.amount = GPUs per worker", "checked": true},
+        {"text": "Inference: use fractions (0.5 / 0.33 / 0.25) to pack tasks per GPU", "checked": true},
+        {"text": "Prefer on-demand over spot (GPU spot is volatile)", "checked": true},
+        {"text": "CUDA, cuDNN, NCCL come bundled in the runtime", "checked": true}
+      ]
+    },
+    {
+      "type": "card-full",
+      "title": "Track everything in MLflow — log from rank 0",
+      "content": "import mlflow\nwith mlflow.start_run(run_name='torchdist-4gpu'):\n    mlflow.log_params({'lr': 1e-3, 'world_size': 4, 'strategy': 'ddp'})\n    result = TorchDistributor(num_processes=4, local_mode=False, use_gpu=True).run(train_fn, ...)\n    mlflow.log_metric('final_loss', result['final_loss'])"
+    },
+    {
+      "type": "section",
+      "title": "Choosing the tool",
+      "subtitle": "A quick decision guide"
+    },
+    {
+      "type": "icon-grid",
+      "title": "Which tool, when",
+      "items": [
+        {"icon": "1️⃣", "title": "Fits on 1 GPU", "description": "Single-node, single-GPU"},
+        {"icon": "⚡", "title": "Want it faster", "description": "TorchDistributor local_mode=True"},
+        {"icon": "🌐", "title": "One node not enough", "description": "TorchDistributor local_mode=False"},
+        {"icon": "🧩", "title": "Model too big", "description": "DeepSpeed / ZeRO"},
+        {"icon": "🐍", "title": "Python-native / dynamic", "description": "Ray Train"},
+        {"icon": "📊", "title": "Always", "description": "Track with MLflow"}
+      ]
+    },
+    {
+      "type": "cards",
+      "title": "Which framework — use each when",
+      "subtitle": "The three distributed-training frameworks",
+      "cards": [
+        {"header": "TorchDistributor", "items": [
+          "Default for distributed PyTorch",
+          "Model FITS on one GPU",
+          "Want data parallelism / speed",
+          "Single-node multi-GPU or multi-node",
+          "DBR 13.0 ML+, Spark 3.4+"
+        ]},
+        {"header": "DeepSpeed distributor", "items": [
+          "Model does NOT fit on one GPU",
+          "Low GPU memory, very large models",
+          "LLM fine-tuning (billions of params)",
+          "ZeRO sharding + CPU offload",
+          "DBR 14.0 ML+"
+        ]},
+        {"header": "Ray Train", "items": [
+          "Python-native / dynamic workloads",
+          "Already using Ray Tune / Data / Serve",
+          "Complex orchestration beyond DataFrames",
+          "Runs on the same Spark cluster",
+          "Ray 2.3.0+"
+        ]}
+      ]
+    },
+    {
+      "type": "icon-grid",
+      "title": "Frameworks & libraries — at a glance",
+      "items": [
+        {"icon": "🔥", "title": "PyTorch / TF (single-node)", "description": "Start here — one GPU, fastest iteration"},
+        {"icon": "🧵", "title": "TorchDistributor", "description": "Data-parallel PyTorch on Spark; multi-GPU → multi-node"},
+        {"icon": "🧩", "title": "DeepSpeed + ZeRO", "description": "Model too big for one GPU; shard states/grads/params"},
+        {"icon": "🚂", "title": "Ray Train", "description": "Python-native distributed DL; pairs with Ray Tune/Data"},
+        {"icon": "⚙️", "title": "Spark ML (pyspark.ml.connect)", "description": "Classic ML at scale on distributed DataFrames"},
+        {"icon": "📊", "title": "MLflow", "description": "Track params/metrics/models across every run"}
+      ]
+    },
+    {
+      "type": "timeline",
+      "title": "Same job, escalating frameworks",
+      "steps": [
+        {"title": "PyTorch single-GPU", "description": "Prove the model trains. Simplest, no distribution."},
+        {"title": "TorchDistributor local_mode=True", "description": "Data parallelism across GPUs on one node."},
+        {"title": "TorchDistributor local_mode=False", "description": "Same code, scale across worker nodes."},
+        {"title": "DeepSpeed distributor", "description": "Switch here only when the model no longer fits one GPU."}
+      ]
+    },
+    {
+      "type": "two-column",
+      "title": "TorchDistributor vs. DeepSpeed distributor",
+      "subtitle": "Both run PyTorch on Spark — different problems",
+      "left_header": "TorchDistributor → speed",
+      "left": [
+        "Problem: training is too slow / batch too small",
+        "Each GPU keeps a full model copy",
+        "Splits the data (data parallelism)",
+        "Use when the model fits one GPU",
+        "Simpler to configure"
+      ],
+      "right_header": "DeepSpeed → memory",
+      "right": [
+        "Problem: the model won't fit in GPU memory",
+        "Shards optimizer/grads/params (ZeRO)",
+        "Built on top of TorchDistributor",
+        "Use for large LLM fine-tuning",
+        "CPU offload + mixed precision"
+      ]
+    },
+    {
+      "type": "two-column",
+      "title": "TorchDistributor vs. Ray Train",
+      "subtitle": "Two ways to do data-parallel deep learning",
+      "left_header": "Choose TorchDistributor",
+      "left": [
+        "You're PyTorch-on-Spark",
+        "Straightforward data parallelism",
+        "Minimal new dependencies",
+        "Want the Databricks-native path"
+      ],
+      "right_header": "Choose Ray Train",
+      "right": [
+        "You're already Ray-native",
+        "Using Ray Tune / Data / Serve together",
+        "Dynamic or complex orchestration",
+        "Python parallelism beyond DataFrames"
+      ]
+    },
+    {
+      "type": "content",
+      "title": "Key takeaways",
+      "bullets": [
+        "Single-node first — distribution adds complexity and communication cost",
+        "Same train_fn goes multi-GPU → multi-node by flipping one flag",
+        "DeepSpeed/ZeRO answers 'model won't fit', not 'make it faster'",
+        "Ray complements Spark for Python-native scaling",
+        "MLflow tracks every run — log from rank 0"
+      ]
+    },
+    {
+      "type": "closing",
+      "title": "Let's run the notebook →"
+    }
+  ]
+}

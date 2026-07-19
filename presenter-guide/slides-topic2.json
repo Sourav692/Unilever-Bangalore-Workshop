@@ -1,0 +1,221 @@
+{
+  "title": "Parallelization Techniques on Databricks",
+  "author": "Databricks Workshop — Bangalore",
+  "date": "July 2026",
+  "slides": [
+    {
+      "type": "title",
+      "title": "Parallelization Techniques",
+      "subtitle": "Utilizing Databricks clusters effectively",
+      "author": "Databricks Workshop — Bangalore",
+      "date": "July 2026"
+    },
+    {
+      "type": "callout",
+      "text": "A cluster is only as useful as your ability to fill it. The wrong pattern leaves workers idle; the right one turns N nodes into ~N× throughput.",
+      "source": "Workshop — Topic 2"
+    },
+    {
+      "type": "agenda",
+      "title": "What we'll cover",
+      "items": [
+        "Match the pattern to the workload's shape",
+        "Spark data parallelism — the foundation",
+        "Pandas Function APIs: per-group training & batch scoring",
+        "Distributed hyperparameter tuning",
+        "joblib-spark for scikit-learn",
+        "Distributed Spark MLlib & GPU scheduling"
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Shape drives the pattern",
+      "subtitle": "Pick the tool that matches your workload"
+    },
+    {
+      "type": "icon-grid",
+      "title": "Workload shape → pattern",
+      "items": [
+        {"icon": "🔀", "title": "Transform big data", "description": "Spark DataFrame / SQL"},
+        {"icon": "🏬", "title": "One model per group", "description": "applyInPandas"},
+        {"icon": "🎯", "title": "Batch scoring", "description": "mapInPandas"},
+        {"icon": "🎛️", "title": "Many HPO configs", "description": "Optuna / Ray Tune"},
+        {"icon": "🔧", "title": "Distribute sklearn", "description": "joblib-spark"},
+        {"icon": "🧠", "title": "One big model", "description": "Spark MLlib"}
+      ]
+    },
+    {
+      "type": "callout",
+      "text": "The mistake to avoid: .collect() or .toPandas() a big dataset and loop in plain Python. That uses ONE core while the cluster sits idle.",
+      "source": "Anti-pattern"
+    },
+    {
+      "type": "section",
+      "title": "Foundation",
+      "subtitle": "Spark data parallelism"
+    },
+    {
+      "type": "timeline",
+      "title": "How Spark fills the cluster",
+      "steps": [
+        {"title": "Partitions", "description": "The DataFrame is split into partitions."},
+        {"title": "Tasks", "description": "Each partition becomes a task."},
+        {"title": "Cores", "description": "Tasks run on executor cores in parallel."},
+        {"title": "Tune", "description": "Target ~2–4× total cores; AQE auto-tunes shuffles."}
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Pandas Function APIs",
+      "subtitle": "Single-node libraries, distributed by Spark"
+    },
+    {
+      "type": "card-right",
+      "title": "applyInPandas — one model per group",
+      "bullets": [
+        "Split-apply-combine over a group key",
+        "Each group arrives as a pandas DataFrame",
+        "Use sklearn / statsmodels / prophet inside",
+        "Hundreds of models train concurrently",
+        "⚠️ Whole group loads in memory — watch skew"
+      ],
+      "card_content": "df.groupBy('store_id') \\\n  .applyInPandas(\n     fit_group,\n     schema=out_schema)\n\n# fit_group runs on an executor,\n# once per group."
+    },
+    {
+      "type": "card-left",
+      "title": "mapInPandas — distributed batch inference",
+      "card_content": "df.mapInPandas(\n   predict_batches,\n   schema=out_schema)\n\n# model loaded ONCE per\n# partition, vectorized\n# over each batch",
+      "bullets": [
+        "Streams batches of rows per partition",
+        "Load the model once, not once per row",
+        "Vectorize prediction over each batch",
+        "Iterator in → iterator out (memory control)",
+        "Every core scores its share of the table"
+      ]
+    },
+    {
+      "type": "three-column",
+      "title": "Which pandas API?",
+      "columns": [
+        {"header": "Pandas UDF", "items": ["Series → Series", "Column transforms", "Vectorized features"]},
+        {"header": "mapInPandas", "items": ["Iterator → Iterator", "Batch inference", "Flexible row counts"]},
+        {"header": "applyInPandas", "items": ["Group → DataFrame", "Per-group training", "Cogroup for per-key joins"]}
+      ]
+    },
+    {
+      "type": "section",
+      "title": "Hyperparameter tuning",
+      "subtitle": "Trials are embarrassingly parallel"
+    },
+    {
+      "type": "two-column",
+      "title": "The current tuning stack",
+      "left_header": "Optuna",
+      "left": [
+        "Lightweight, dynamic search spaces",
+        "Parallelize trials with Joblib",
+        "Tracks with MLflow",
+        "Great for moderate parallelism"
+      ],
+      "right_header": "Ray Tune",
+      "right": [
+        "Distributed tuning across the cluster",
+        "Ray backend, built into DBR ML",
+        "Recommended for large-scale search",
+        "Pairs with Ray Train / Data"
+      ]
+    },
+    {
+      "type": "callout",
+      "text": "Hyperopt is deprecated — no longer maintained and removed from Databricks Runtime ML after 16.4 LTS. Migrate SparkTrials/Hyperopt to Optuna or Ray Tune.",
+      "source": "Databricks documentation — Hyperparameter tuning"
+    },
+    {
+      "type": "card-full",
+      "title": "Distribute Optuna trials with the Spark backend",
+      "content": "from joblibspark import register_spark\nimport joblib, optuna\nregister_spark()\n\nwith joblib.parallel_backend('spark', n_jobs=-1):\n    study = optuna.create_study(direction='maximize')\n    study.optimize(objective, n_trials=50, n_jobs=-1)\n# Independent trials dispatched to executors."
+    },
+    {
+      "type": "section",
+      "title": "Distribute scikit-learn",
+      "subtitle": "joblib-spark"
+    },
+    {
+      "type": "card-right",
+      "title": "joblib-spark backend",
+      "bullets": [
+        "Many sklearn tools parallelize via Joblib",
+        "GridSearchCV, RandomForest, CV folds",
+        "Redirect that parallelism onto Spark",
+        "No rewrite — just a context manager",
+        "Driver-bound search → cluster-wide"
+      ],
+      "card_content": "register_spark()\nwith joblib.parallel_backend(\n        'spark', n_jobs=-1):\n    grid.fit(X, y)\n\n# each (params × fold)\n# is an executor task"
+    },
+    {
+      "type": "section",
+      "title": "Distributed MLlib & GPUs",
+      "subtitle": "One big model; filling GPU hardware"
+    },
+    {
+      "type": "two-column",
+      "title": "Spark MLlib for one big model",
+      "left_header": "pyspark.ml",
+      "left": [
+        "Classic DataFrame-based MLlib",
+        "Pipelines, transformers, estimators",
+        "Algorithms distributed by design"
+      ],
+      "right_header": "pyspark.ml.connect",
+      "right": [
+        "Newer distributed module",
+        "Works with Spark Connect",
+        "Default on DBR 17.0+ Standard compute"
+      ]
+    },
+    {
+      "type": "pros-cons",
+      "title": "GPU task scheduling",
+      "pros_header": "Training",
+      "cons_header": "Inference",
+      "pros": [
+        "gpu.amount = GPUs per worker",
+        "One task owns all node GPUs",
+        "Minimizes communication overhead"
+      ],
+      "cons": [
+        "gpu.amount = 0.5 / 0.33 / 0.25",
+        "2–4 tasks share each GPU",
+        "Packs concurrent scoring tasks"
+      ]
+    },
+    {
+      "type": "checklist",
+      "title": "Cluster-utilization checklist",
+      "items": [
+        {"text": "Right-size partitions (~2–4× total cores)", "checked": true},
+        {"text": "Never loop over collected data on the driver", "checked": true},
+        {"text": "Watch for skew — uneven groups idle some executors, OOM others", "checked": true},
+        {"text": "Leave Adaptive Query Execution (AQE) on", "checked": true},
+        {"text": "Match the pattern to the workload's shape", "checked": true},
+        {"text": "Watch the Spark UI for stragglers, spill, idle cores", "checked": true}
+      ]
+    },
+    {
+      "type": "content",
+      "title": "Key takeaways",
+      "bullets": [
+        "Parallelism is about filling the cluster — match pattern to shape",
+        "applyInPandas turns single-node libraries into per-group training",
+        "mapInPandas gives efficient distributed batch inference",
+        "Optuna + Ray Tune are the tuning stack (Hyperopt is deprecated)",
+        "joblib-spark distributes scikit-learn with almost no code change",
+        "MLlib / pyspark.ml.connect trains one big model on distributed data"
+      ]
+    },
+    {
+      "type": "closing",
+      "title": "Let's run the notebook →"
+    }
+  ]
+}
