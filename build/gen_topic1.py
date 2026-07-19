@@ -562,19 +562,41 @@ From the Databricks GPU compute guidance:
 cells.append(md(r"""
 ## 12. Decision guide — which tool, when
 
-```
-Does the model fit on ONE GPU?
-├─ YES ─ Do you need more speed / bigger effective batch?
-│        ├─ NO  → Single-node, single-GPU  (simplest)
-│        ├─ YES, one node's GPUs suffice → TorchDistributor(local_mode=True)
-│        └─ YES, need many nodes          → TorchDistributor(local_mode=False)
-│
-└─ NO (model too big for one GPU)
-         → DeepSpeedTorchDistributor (ZeRO-2/3)  or model/pipeline parallelism
+```mermaid
+flowchart TD
+    Q1{"Does the model fit<br/>on ONE GPU?"}
+    Q2{"Need more speed or<br/>bigger effective batch?"}
+    Q3{"Do one node's GPUs<br/>suffice?"}
+    Q4{"Already Ray-native, or need<br/>dynamic/complex orchestration?"}
 
-Already Ray-native, or need dynamic/complex orchestration?
-         → Ray Train (data-parallel) — complements Spark, same cluster
+    R1["Single-node, single-GPU<br/><i>simplest</i>"]
+    R2["TorchDistributor<br/><code>local_mode=True</code>"]
+    R3["TorchDistributor<br/><code>local_mode=False</code>"]
+    R4["DeepSpeedTorchDistributor<br/>ZeRO-2/3 or model/pipeline parallelism"]
+    R5["Ray Train (data-parallel)<br/>complements Spark, same cluster"]
+    ML["ALWAYS: track with MLflow<br/><i>log from rank 0</i>"]
+
+    Q1 -->|Yes| Q2
+    Q1 -->|No — model too big| R4
+
+    Q2 -->|No| R1
+    Q2 -->|Yes| Q3
+
+    Q3 -->|Yes| R2
+    Q3 -->|No — need many nodes| R3
+
+    Q4 -->|Yes| R5
+
+    R1 --> ML
+    R2 --> ML
+    R3 --> ML
+    R4 --> ML
+    R5 --> ML
+
+    style Q4 fill:#f5f5f5,stroke:#888,stroke-dasharray: 4 4
 ```
+
+> **Note:** The Ray Train branch (dashed box) is a parallel consideration — choose it over TorchDistributor when you're already in the Ray ecosystem or need dynamic orchestration (Ray Tune, Ray Data, etc.).
 
 ### Key takeaways
 - **Single-node first.** Distribution adds complexity + communication overhead.
